@@ -1,9 +1,9 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'login.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:image_picker/image_picker.dart';
+import 'login.dart';
 
 class NormalUserDashboard extends StatefulWidget {
   const NormalUserDashboard({super.key});
@@ -13,24 +13,25 @@ class NormalUserDashboard extends StatefulWidget {
 }
 
 class _NormalUserDashboardState extends State<NormalUserDashboard> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
   final SupabaseClient _supabase = Supabase.instance.client;
   final ImagePicker _picker = ImagePicker();
   File? _selectedImage;
   final TextEditingController _descriptionController = TextEditingController();
 
   void _signOut() async {
-    await _auth.signOut();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const LoginPage()),
-    );
+    await _supabase.auth.signOut();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginPage()),
+      );
+    }
   }
 
   Future<List<Map<String, dynamic>>> _fetchPosts() async {
     final response = await _supabase
         .from('posts')
-        .select()
+        .select('id, user_id, image_url, description, created_at')
         .order('created_at', ascending: false);
     return response;
   }
@@ -38,21 +39,31 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
   Future<List<Map<String, dynamic>>> _fetchComments(String postId) async {
     final response = await _supabase
         .from('comments')
-        .select()
+        .select('comment_text, created_at')
         .eq('post_id', postId)
         .order('created_at', ascending: true);
     return response;
   }
 
   void _addComment(String postId, String commentText) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please log in to comment")),
+      );
+      return;
+    }
+
     if (commentText.isNotEmpty) {
       await _supabase.from('comments').insert({
         'post_id': postId,
-        'user_id': _auth.currentUser?.uid,
+        'user_id': user.id,
         'comment_text': commentText,
         'created_at': DateTime.now().toIso8601String(),
       });
-      setState(() {}); // Refresh UI
+
+      // Manually refresh UI
+      setState(() {});
     }
   }
 
@@ -66,6 +77,14 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
   }
 
   Future<void> _uploadPost() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Please log in to upload a post")),
+      );
+      return;
+    }
+
     if (_selectedImage == null || _descriptionController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -75,20 +94,21 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
     }
 
     try {
+      // Read image as bytes
+      Uint8List imageBytes = await _selectedImage!.readAsBytes();
+
+      // Generate unique file name
       final fileName = 'posts/${DateTime.now().millisecondsSinceEpoch}.jpg';
-      final storageResponse = await _supabase.storage
-          .from('images')
-          .upload(fileName, _selectedImage!);
 
-      // Instead of checking for null, check if it's an empty string
-      if (storageResponse.isEmpty) {
-        throw Exception("Failed to upload image");
-      }
+      // Upload image to Supabase Storage
+      await _supabase.storage.from('images').uploadBinary(fileName, imageBytes);
 
+      // Get public URL
       final imageUrl = _supabase.storage.from('images').getPublicUrl(fileName);
 
+      // Insert post into database
       await _supabase.from('posts').insert({
-        'user_id': _auth.currentUser?.uid,
+        'user_id': user.id,
         'image_url': imageUrl,
         'description': _descriptionController.text,
         'created_at': DateTime.now().toIso8601String(),
@@ -178,7 +198,7 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 10),
                             child: FutureBuilder<List<Map<String, dynamic>>>(
-                              future: _fetchComments(post['id']),
+                              future: _fetchComments(post['id'].toString()),
                               builder: (context, snapshot) {
                                 if (!snapshot.hasData) {
                                   return const CircularProgressIndicator();
@@ -199,8 +219,8 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
                                     TextField(
                                       decoration: const InputDecoration(
                                           hintText: "Add a comment..."),
-                                      onSubmitted: (value) =>
-                                          _addComment(post['id'], value),
+                                      onSubmitted: (value) => _addComment(
+                                          post['id'].toString(), value),
                                     ),
                                   ],
                                 );
@@ -216,20 +236,6 @@ class _NormalUserDashboardState extends State<NormalUserDashboard> {
             ),
           ),
         ],
-      ),
-      bottomNavigationBar: BottomNavigationBar(
-        type: BottomNavigationBarType.fixed,
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.notifications), label: "Notifications"),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.attach_money), label: "Donate"),
-          BottomNavigationBarItem(icon: Icon(Icons.person), label: "Profile"),
-        ],
-        onTap: (index) {
-          // Future functionality for navigation
-        },
       ),
     );
   }

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'login.dart'; // Ensure login.dart exists in your project
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'login.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -11,8 +10,7 @@ class RegisterPage extends StatefulWidget {
 }
 
 class _RegisterPageState extends State<RegisterPage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final supabase = Supabase.instance.client;
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
@@ -63,57 +61,52 @@ class _RegisterPageState extends State<RegisterPage> {
     });
 
     try {
-      // Create user in Firebase Authentication
-      UserCredential userCredential =
-          await _auth.createUserWithEmailAndPassword(
+      // Register user with Supabase Authentication
+      final AuthResponse response = await supabase.auth.signUp(
         email: email,
         password: password,
       );
 
-      // Prepare user data
-      Map<String, dynamic> userData = {
+      final user = response.user;
+      if (user == null) throw "User registration failed.";
+
+      // Store user data in Supabase Database
+      final Map<String, dynamic> userData = {
+        'id': user.id, // Ensuring correct user ID
         'name': name,
         'email': email,
-        'userType': _selectedUserType,
+        'userType': _selectedUserType, // Ensure correct column name
       };
 
-      // Add locality for Volunteers and Doctors
       if (_selectedUserType == "Volunteer" || _selectedUserType == "Doctor") {
         userData['locality'] = locality;
       }
-
-      // Add license number for Doctors
       if (_selectedUserType == "Doctor") {
         userData['licenseNumber'] = licenseNumber;
-        userData['isVerified'] = false; // Doctor needs verification
+        userData['isVerified'] = false; // Boolean instead of string
       }
 
-      // Store user data in Firestore
-      await _firestore
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set(userData);
+      await supabase.from('users').insert(userData);
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text("Registration successful! Please log in.")),
       );
 
-      // Navigate to Login Page
       if (mounted) {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => LoginPage()),
+          MaterialPageRoute(builder: (context) => const LoginPage()),
         );
       }
     } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error: $e")),
+      );
+    } finally {
       setState(() {
         _isLoading = false;
       });
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Error: ${e.toString()}")),
-      );
     }
   }
 
@@ -165,10 +158,8 @@ class _RegisterPageState extends State<RegisterPage> {
               DropdownButtonFormField<String>(
                 value: _selectedUserType,
                 items: _userTypes
-                    .map((type) => DropdownMenuItem(
-                          value: type,
-                          child: Text(type),
-                        ))
+                    .map((type) =>
+                        DropdownMenuItem(value: type, child: Text(type)))
                     .toList(),
                 onChanged: (value) {
                   setState(() {
@@ -181,8 +172,6 @@ class _RegisterPageState extends State<RegisterPage> {
                 ),
               ),
               const SizedBox(height: 16),
-
-              // Show locality field if Volunteer or Doctor is selected
               if (_selectedUserType == "Volunteer" ||
                   _selectedUserType == "Doctor")
                 Column(
@@ -197,8 +186,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: 16),
                   ],
                 ),
-
-              // Show license number field only if Doctor is selected
               if (_selectedUserType == "Doctor")
                 Column(
                   children: [
@@ -212,7 +199,6 @@ class _RegisterPageState extends State<RegisterPage> {
                     const SizedBox(height: 16),
                   ],
                 ),
-
               ElevatedButton(
                 onPressed: _isLoading ? null : _register,
                 style: ElevatedButton.styleFrom(
@@ -227,7 +213,7 @@ class _RegisterPageState extends State<RegisterPage> {
                 onPressed: () {
                   Navigator.pushReplacement(
                     context,
-                    MaterialPageRoute(builder: (context) => LoginPage()),
+                    MaterialPageRoute(builder: (context) => const LoginPage()),
                   );
                 },
                 child: const Text("Already have an account? Login here"),

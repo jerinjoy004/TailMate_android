@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'register.dart';
 import 'doctor_dashboard.dart';
 import 'volunteer_dashboard.dart';
@@ -14,7 +13,8 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final supabase = Supabase.instance.client;
+
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
@@ -35,68 +35,57 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      // Authenticate the user
-      UserCredential userCredential = await _auth.signInWithEmailAndPassword(
+      // Authenticate user with Supabase
+      final AuthResponse response = await supabase.auth.signInWithPassword(
         email: email,
         password: password,
       );
 
-      // Fetch the user's data from Firestore
-      DocumentSnapshot userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .get();
+      final user = response.user;
+      if (user == null) throw "Login failed. Please try again.";
 
-      if (userDoc.exists) {
-        String userType = userDoc.get('userType'); // Safely get the userType
+      // Fetch user data from Supabase
+      final List<dynamic> userData = await supabase
+          .from('users')
+          .select('id, name, email, "userType"')
+          .eq('id', user.id);
 
-        // Navigate to the appropriate dashboard
-        if (userType == "Doctor") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const DoctorDashboard()),
-          );
-        } else if (userType == "Volunteer") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const VolunteerDashboard()),
-          );
-        } else if (userType == "Normal User") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(
-                builder: (context) => const NormalUserDashboard()),
-          );
-        } else {
-          // Handle unexpected userType
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Unknown user type.")),
-          );
-        }
+      if (userData.isEmpty) {
+        throw "User data not found. Please register again.";
+      }
+
+      final userType = userData.first['userType'];
+
+      // Navigate to appropriate dashboard
+      if (userType == "Doctor") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const DoctorDashboard()),
+        );
+      } else if (userType == "Volunteer") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const VolunteerDashboard()),
+        );
+      } else if (userType == "Normal User") {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const NormalUserDashboard()),
+        );
       } else {
-        // User data not found in Firestore
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text("User data not found. Please register again.")),
+          const SnackBar(content: Text("Unknown user type.")),
         );
       }
-    } on FirebaseAuthException catch (e) {
-      String errorMessage;
-      if (e.code == 'user-not-found') {
-        errorMessage = "No user found for that email.";
-      } else if (e.code == 'wrong-password') {
-        errorMessage = "Wrong password provided.";
-      } else {
-        errorMessage = "Login failed: ${e.message}";
-      }
+    } on AuthException catch (e) {
+      String errorMessage = e.message;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(errorMessage)),
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("An unexpected error occurred.")),
+        SnackBar(content: Text("Error: $e")),
       );
-      print("Error: $e");
     } finally {
       setState(() {
         _isLoading = false;
@@ -149,13 +138,8 @@ class _LoginPageState extends State<LoginPage> {
                   padding: const EdgeInsets.all(16),
                 ),
                 child: _isLoading
-                    ? const CircularProgressIndicator(
-                        color: Colors.white,
-                      )
-                    : const Text(
-                        "Login",
-                        style: TextStyle(fontSize: 18),
-                      ),
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text("Login", style: TextStyle(fontSize: 18)),
               ),
               TextButton(
                 onPressed: () {

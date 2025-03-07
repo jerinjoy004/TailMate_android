@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'login.dart';
 
 class VolunteerDashboard extends StatelessWidget {
   const VolunteerDashboard({super.key});
+
   void _signOut(BuildContext context) async {
-    await FirebaseAuth.instance.signOut();
+    await Supabase.instance.client.auth.signOut();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (context) => const LoginPage()),
