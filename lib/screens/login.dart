@@ -70,7 +70,7 @@ class _LoginPageState extends State<LoginPage> {
       } else if (userType == "Normal User") {
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(builder: (context) => const NormalUserDashboard()),
+          MaterialPageRoute(builder: (context) => const UserDashboard()),
         );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
